@@ -1,0 +1,15 @@
+- main [ref=e3]:
+  - region "Expose buried API surfaces before attackers do." [ref=e4]:
+    - generic [ref=e5]:
+      - text: APIR Recon Console
+      - heading "Expose buried API surfaces before attackers do." [level=1] [ref=e6]
+      - paragraph [ref=e7]: Run a passive scan, group discovered endpoints by origin, and export a terminal-ready investigation brief.
+    - generic [ref=e8]:
+      - generic [ref=e9]: Target URL
+      - generic [ref=e10]:
+        - textbox "Target URL" [ref=e11]:
+          - /placeholder: https://example.com
+        - button "Scan" [ref=e12] [cursor=pointer]
+  - region "Awaiting scan" [ref=e13]:
+    - text: $ apir scan --target
+    - paragraph [ref=e14]: Enter a URL to build a grouped endpoint map with source confidence and cURL samples.

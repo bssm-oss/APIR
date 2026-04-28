@@ -1,0 +1,63 @@
+import { generateReport } from '../lib/reporter.js';
+
+describe('generateReport', () => {
+  test('separates documented surface APIs from buried APIs and deduplicates buried endpoints', () => {
+    const report = generateReport('https://example.test', {
+      phases: {
+        metadata: {
+          apis: [
+            {
+              url: 'https://example.test/swagger.json',
+              evidence: 'structured api documentation',
+              metadata: { schema: { paths: { '/api/users': { get: {}, post: {} } } } },
+            },
+          ],
+        },
+        sourcemap: {
+          apis: [
+            { path: '/api/hidden', method: 'get', source: 'sourcemap' },
+            { endpoint: 'https://example.test/api/hidden', method: 'GET', source: 'window' },
+            { path: '/api/admin', source: 'sourcemap' },
+          ],
+        },
+      },
+    });
+
+    expect(report.surfaceApis).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ method: 'GET', path: '/api/users' }),
+        expect.objectContaining({ method: 'POST', path: '/api/users' }),
+      ]),
+    );
+    expect(report.buriedApis).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ method: 'GET', path: '/api/hidden' }),
+        expect.objectContaining({ method: 'UNKNOWN', path: '/api/admin' }),
+      ]),
+    );
+    expect(report.buriedApis.filter((api) => api.path === '/api/hidden')).toHaveLength(1);
+  });
+
+  test('calculates risk score from documented versus total endpoint count', () => {
+    const report = generateReport('https://example.test', {
+      phases: {
+        metadata: {
+          metadata: { discoveredDocs: { '/openapi.json': { paths: { '/api/public': { get: {} } } } } },
+        },
+        chunks: { apis: [{ url: 'https://example.test/api/private', method: 'POST' }] },
+      },
+    });
+
+    expect(report.surfaceApis).toHaveLength(1);
+    expect(report.buriedApis).toHaveLength(1);
+    expect(report.riskScore).toBe(50);
+  });
+
+  test('returns zero risk when no endpoints are discovered', () => {
+    const report = generateReport('https://example.test', { phases: {} });
+
+    expect(report.surfaceApis).toEqual([]);
+    expect(report.buriedApis).toEqual([]);
+    expect(report.riskScore).toBe(0);
+  });
+});
