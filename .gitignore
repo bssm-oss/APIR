@@ -31,6 +31,10 @@ firebase-debug.log
 .eslintcache
 .nyc_output/
 
+# Local agent/browser artifacts
+.playwright-mcp/
+apir-dashboard.png
+
 # OS and editor files
 .DS_Store
 .idea/
