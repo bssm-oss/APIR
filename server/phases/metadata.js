@@ -2,6 +2,8 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { parseStringPromise } from 'xml2js';
 
+import { createError } from '../scanner.js';
+
 const API_PATTERN = /\/api(?:\/|$)|\/v\d+(?:\/|$)/i;
 const DOC_PATHS = ['/swagger.json', '/openapi.json', '/api-docs', '/redoc'];
 
@@ -153,7 +155,7 @@ export async function extractMetadata(targetUrl, httpClient = axios) {
       );
     }
   } else if (robotsResponse.error && robotsResponse.status !== 404) {
-    errors.push(`robots.txt fetch failed: ${robotsResponse.error.message}`);
+    errors.push(createPhaseError('FETCH_FAILED', `robots.txt fetch failed: ${formatError(robotsResponse.error)}`));
   }
 
   const sitemapUrl = resolveTargetUrl(targetUrl, '/sitemap.xml');
@@ -170,10 +172,10 @@ export async function extractMetadata(targetUrl, httpClient = axios) {
         );
       }
     } catch (error) {
-      errors.push(`sitemap.xml parse failed: ${error.message}`);
+      errors.push(createPhaseError('PARSE_FAILED', `sitemap.xml parse failed: ${formatError(error)}`));
     }
   } else if (sitemapResponse.error && sitemapResponse.status !== 404) {
-    errors.push(`sitemap.xml fetch failed: ${sitemapResponse.error.message}`);
+    errors.push(createPhaseError('FETCH_FAILED', `sitemap.xml fetch failed: ${formatError(sitemapResponse.error)}`));
   }
 
   const htmlResponse = await fetchText(httpClient, targetUrl, { responseType: 'text' });
@@ -212,7 +214,7 @@ export async function extractMetadata(targetUrl, httpClient = axios) {
       );
     });
   } else if (htmlResponse.error) {
-    errors.push(`html metadata fetch failed: ${htmlResponse.error.message}`);
+    errors.push(createPhaseError('FETCH_FAILED', `html metadata fetch failed: ${formatError(htmlResponse.error)}`));
   }
 
   for (const docPath of DOC_PATHS) {
@@ -220,7 +222,7 @@ export async function extractMetadata(targetUrl, httpClient = axios) {
     const docResponse = await fetchText(httpClient, docUrl, { responseType: 'text' });
     if (docResponse.status !== 200) {
       if (docResponse.error && docResponse.status !== 404) {
-        errors.push(`${docPath} probe failed: ${docResponse.error.message}`);
+        errors.push(createPhaseError('FETCH_FAILED', `${docPath} probe failed: ${formatError(docResponse.error)}`));
       }
       continue;
     }
@@ -238,3 +240,15 @@ export async function extractMetadata(targetUrl, httpClient = axios) {
 }
 
 export default extractMetadata;
+
+function createPhaseError(code, message) {
+  return createError(code, message, { phase: 'metadata' });
+}
+
+function formatError(error) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
+}

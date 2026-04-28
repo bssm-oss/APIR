@@ -2,6 +2,8 @@ import vm from 'node:vm';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 
+import { createError } from '../scanner.js';
+
 const FRAMEWORK_STATE_KEYS = [
   '__NUXT__',
   '__NEXT_DATA__',
@@ -39,16 +41,20 @@ export async function harvestWindowObject(targetUrl, httpClient = axios) {
     }
 
     for (const key of FRAMEWORK_STATE_KEYS) {
-      if (!Object.prototype.hasOwnProperty.call(sandbox, key)) {
-        continue;
-      }
+      try {
+        if (!Object.prototype.hasOwnProperty.call(sandbox, key)) {
+          continue;
+        }
 
-      const state = sandbox[key];
-      frameworkState[key] = cloneForMetadata(state);
-      collectApiMatches(state, key, apis);
+        const state = sandbox[key];
+        frameworkState[key] = cloneForMetadata(state);
+        collectApiMatches(state, key, apis);
+      } catch (error) {
+        errors.push(createPhaseError('SCRIPT_EXECUTION_FAILED', `failed to access ${key}: ${formatSandboxError(error)}`));
+      }
     }
   } catch (error) {
-    errors.push(`window harvest failed: ${error.message}`);
+    errors.push(createPhaseError('PHASE_FAILED', `window harvest failed: ${formatSandboxError(error)}`));
   }
 
   return {
@@ -87,21 +93,27 @@ function extractScriptBlocks(html) {
 
 function createSandbox(targetUrl) {
   const parsedUrl = new URL(targetUrl);
-  const sandbox = {
+  const sandboxPrototype = Object.create(null);
+  const sandbox = Object.assign(Object.create(sandboxPrototype), {
+    FinalizationRegistry: undefined,
+    Function: undefined,
+    Proxy: undefined,
+    Symbol: undefined,
     URL,
     URLSearchParams,
+    WeakRef: undefined,
     atob: (value) => Buffer.from(String(value), 'base64').toString('binary'),
     btoa: (value) => Buffer.from(String(value), 'binary').toString('base64'),
-    console: {
+    console: Object.assign(Object.create(null), {
       debug() {},
       error() {},
       info() {},
       log() {},
       warn() {},
-    },
+    }),
     document: createDocumentStub(),
-    history: {},
-    location: {
+    history: Object.create(null),
+    location: Object.assign(Object.create(null), {
       hash: parsedUrl.hash,
       host: parsedUrl.host,
       hostname: parsedUrl.hostname,
@@ -114,9 +126,9 @@ function createSandbox(targetUrl) {
       toString() {
         return parsedUrl.href;
       },
-    },
+    }),
     localStorage: createStorageStub(),
-    navigator: { userAgent: 'APIR Window Harvester' },
+    navigator: Object.assign(Object.create(null), { userAgent: 'APIR Window Harvester' }),
     sessionStorage: createStorageStub(),
     setInterval() {
       return 0;
@@ -126,17 +138,20 @@ function createSandbox(targetUrl) {
     },
     clearInterval() {},
     clearTimeout() {},
-  };
+  });
 
   sandbox.globalThis = sandbox;
   sandbox.self = sandbox;
   sandbox.window = sandbox;
 
-  return vm.createContext(sandbox, { name: 'apir-window-harvest' });
+  return vm.createContext(sandbox, {
+    codeGeneration: { strings: false, wasm: false },
+    name: 'apir-window-harvest',
+  });
 }
 
 function createDocumentStub() {
-  const element = {
+  const element = Object.assign(Object.create(null), {
     addEventListener() {},
     appendChild() {},
     getAttribute() {
@@ -144,14 +159,14 @@ function createDocumentStub() {
     },
     removeChild() {},
     setAttribute() {},
-    style: {},
-  };
+    style: Object.create(null),
+  });
 
-  return {
+  return Object.assign(Object.create(null), {
     addEventListener() {},
     body: element,
     createElement() {
-      return { ...element };
+      return Object.assign(Object.create(null), element, { style: Object.create(null) });
     },
     currentScript: null,
     documentElement: element,
@@ -164,13 +179,13 @@ function createDocumentStub() {
     querySelectorAll() {
       return [];
     },
-  };
+  });
 }
 
 function createStorageStub() {
   const values = new Map();
 
-  return {
+  return Object.assign(Object.create(null), {
     clear() {
       values.clear();
     },
@@ -183,7 +198,7 @@ function createStorageStub() {
     setItem(key, value) {
       values.set(String(key), String(value));
     },
-  };
+  });
 }
 
 function captureJsonScript(scriptBlock, sandbox, errors) {
@@ -195,7 +210,7 @@ function captureJsonScript(scriptBlock, sandbox, errors) {
       sandbox[stateKey] = parsedJson;
     }
   } catch (error) {
-    errors.push(`script ${scriptBlock.index} JSON parse failed: ${error.message}`);
+    errors.push(createPhaseError('PARSE_FAILED', `script ${scriptBlock.index} JSON parse failed: ${formatSandboxError(error)}`));
   }
 }
 
@@ -213,11 +228,32 @@ function inferJsonStateKey(scriptBlock) {
 
 function executeInlineScript(content, sandbox, errors) {
   try {
-    const script = new vm.Script(content, { displayErrors: false });
-    script.runInContext(sandbox, { displayErrors: false, timeout: SCRIPT_TIMEOUT_MS });
+    const script = new vm.Script(content, {
+      displayErrors: false,
+      filename: 'apir-sandbox-script.js',
+      lineOffset: 0,
+      produceCachedData: false,
+    });
+    script.runInContext(sandbox, {
+      breakOnSigint: true,
+      displayErrors: false,
+      timeout: SCRIPT_TIMEOUT_MS,
+    });
   } catch (error) {
-    errors.push(`inline script skipped: ${error.message}`);
+    errors.push(createPhaseError('SCRIPT_EXECUTION_FAILED', `inline script skipped: ${formatSandboxError(error)}`));
   }
+}
+
+function createPhaseError(code, message) {
+  return createError(code, message, { phase: 'window' });
+}
+
+function formatSandboxError(error) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
 }
 
 function collectApiMatches(value, foundIn, apis, path = foundIn, visited = new Set()) {

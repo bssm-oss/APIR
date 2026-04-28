@@ -83,6 +83,25 @@ describe('Scanner', () => {
     expect(report.metadata.phaseTimings.dynamic).toBe(0);
   });
 
+  test('quick scans only run sourcemap, window, and metadata phases', async () => {
+    const { Scanner, mocks } = await loadScannerWithMocks();
+
+    const report = await new Scanner({ httpClient: createHttpClient() }).scan('https://example.test/', {
+      quick: true,
+    });
+
+    expect(mocks.sourcemap).toHaveBeenCalled();
+    expect(mocks.window).toHaveBeenCalled();
+    expect(mocks.metadata).toHaveBeenCalled();
+    expect(mocks.chunks).not.toHaveBeenCalled();
+    expect(mocks.dynamic).not.toHaveBeenCalled();
+    expect(mocks.graphql).not.toHaveBeenCalled();
+    expect(mocks.serviceworker).not.toHaveBeenCalled();
+    expect(mocks.phantom).not.toHaveBeenCalled();
+    expect(report.metadata.skippedPhases).toEqual(['chunks', 'dynamic', 'graphql', 'serviceworker', 'phantom']);
+    expect(report.metadata.phaseTimings.chunks).toBe(0);
+  });
+
   test('runs independent phases before graphql in concurrent mode', async () => {
     let resolveSourcemap;
     const sourcemapOutput = { apis: [{ path: '/api/sourcemap', method: 'GET' }], errors: [], metadata: {} };

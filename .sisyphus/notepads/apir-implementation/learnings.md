@@ -57,3 +57,34 @@ Stack: Node.js (Express), React, Puppeteer, source-map, acorn, cheerio
 ## 2026-04-29 Environment Wiring
 - Runtime env vars from `.env.example` are now consumed directly by implementation: `SCAN_TIMEOUT_MS` in the scanner HTTP client, `CLIENT_ORIGIN` in Express CORS, `LOG_LEVEL=debug` for basic scanner/CLI logging, and `PUPPETEER_HEADLESS=false` to run browser phases visibly.
 - Puppeteer phases keep the default `headless: 'new'` behavior unless `PUPPETEER_HEADLESS` is exactly `false`.
+
+## 2026-04-29 Phantom Hypermedia Mapping
+- `hypermediaMapping` should navigate to the target once, cache descriptors, and re-query current `a, form, button` handles by descriptor index during interaction; avoid `page.goto` inside the per-element loop to prevent repeated full reloads and browser resource growth.
+## 2026-04-29 - Reporter API dedupe metadata merging
+
+- `lib/reporter.js` keeps `api.source` as a comma-separated string for backward compatibility when duplicate path+method entries are merged.
+- Rich multi-phase provenance is now exposed as `api.sources`, with confidence promoted to the highest value among duplicate detections.
+- Reporter tests can exercise cross-phase duplicates by placing normalized-equivalent URLs in different phase buckets, such as sourcemap `path` and dynamic absolute `url`.
+
+## 2026-04-29 Quick Scan Preset
+
+- `Scanner` option normalization treats `quick: true` as an additive skip preset: only `sourcemap`, `window`, and `metadata` remain runnable, while other known phases are marked skipped with zero timings.
+- CLI scan mode exposes `--quick` and forwards it as `quick: options.quick ?? false`; `POST /api/scan` already passes request options through to the scanner without additional route changes.
+
+## 2026-04-29 Window Sandbox Hardening
+
+- `server/phases/window.js` now creates the VM sandbox from null-prototype objects, disables string/wasm code generation, and shadows `Function`, `Proxy`, `WeakRef`, `FinalizationRegistry`, and `Symbol` to reduce common sandbox escape and trap vectors.
+- `vm.Script` options should use `produceCachedData: false`; Node rejects `cachedData: false` because `cachedData` must be a buffer-like object.
+- Framework state harvesting should keep per-key access inside `try` blocks because hostile getters or proxy-like values can throw during metadata cloning or API traversal.
+
+## 2026-04-29 Structured Phase Errors
+
+- `server/scanner.js` exports `createError(code, message, meta = {})` and normalizes any legacy string phase errors into `{ code, message, phase }` objects.
+- Phase modules import `createError` and wrap local producers through `createPhaseError`, preserving the `apis/errors/metadata` contract while changing `errors` entries from strings to structured objects.
+- Current `lib/*.js` modules do not produce `errors` arrays directly; utility failures from JWT, CORS, fingerprint, and header fetches are captured as structured scanner utility errors.
+
+## 2026-04-29 React TypeScript Tailwind Client
+
+- `client/` is now a Vite React TypeScript app with Tailwind CSS and a terminal design system in `tailwind.config.js` (`terminal.*` colors, phase colors, mono font stack, glow/scanline motion tokens).
+- The dashboard keeps Express compatibility by posting `{ targetUrl, options }` to `/api/scan`; phase selection computes `skipPhases`, and Quick Scan sends `quick: true` plus the sourcemap/window/metadata skip preset.
+- Report UI composes `UrlInput`, `ScanProgress`, `ReportViewer`, `ApiList`, `ApiDetail`, and `ExportButtons`; API normalization lives in `src/lib/apiUtils.ts` and preserves multi-source findings through `sources` badges.

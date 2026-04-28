@@ -1,5 +1,7 @@
 import puppeteer from 'puppeteer';
 
+import { createError } from '../scanner.js';
+
 const PAGE_TIMEOUT_MS = 30000;
 const INTERACTION_TIMEOUT_MS = 5000;
 const STATE_OBSERVATION_MS = 2500;
@@ -18,7 +20,7 @@ export async function hypermediaMapping(targetUrl) {
   if (!isValidUrl(targetUrl)) {
     return {
       apis,
-      errors: [`Invalid target URL: ${targetUrl}`],
+      errors: [createPhaseError('hypermedia', 'INVALID_URL', `Invalid target URL: ${targetUrl}`)],
       metadata,
     };
   }
@@ -46,12 +48,11 @@ export async function hypermediaMapping(targetUrl) {
       };
 
       try {
-        await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: PAGE_TIMEOUT_MS });
         const currentElements = await page.$$('a, form, button');
         const element = currentElements[descriptor.index];
 
         if (!element) {
-          errors.push(`Interactive element ${descriptor.index} disappeared before interaction`);
+          errors.push(createPhaseError('hypermedia', 'ELEMENT_NOT_FOUND', `Interactive element ${descriptor.index} disappeared before interaction`));
           await disposeElements(currentElements);
           continue;
         }
@@ -86,11 +87,11 @@ export async function hypermediaMapping(targetUrl) {
         await disposeElements(currentElements);
       } catch (error) {
         page.off('request', requestListener);
-        errors.push(`Hypermedia interaction ${descriptor.index} failed: ${formatError(error)}`);
+        errors.push(createPhaseError('hypermedia', isTimeoutError(error) ? 'TIMEOUT' : 'BROWSER_ERROR', `Hypermedia interaction ${descriptor.index} failed: ${formatError(error)}`));
       }
     }
   } catch (error) {
-    errors.push(`Hypermedia mapping failed: ${formatError(error)}`);
+    errors.push(createPhaseError('hypermedia', 'BROWSER_ERROR', `Hypermedia mapping failed: ${formatError(error)}`));
   } finally {
     if (browser) {
       await browser.close();
@@ -112,7 +113,7 @@ export async function stateTransitionTracking(targetUrl) {
   if (!isValidUrl(targetUrl)) {
     return {
       apis,
-      errors: [`Invalid target URL: ${targetUrl}`],
+      errors: [createPhaseError('state', 'INVALID_URL', `Invalid target URL: ${targetUrl}`)],
       metadata,
     };
   }
@@ -234,7 +235,7 @@ export async function stateTransitionTracking(targetUrl) {
       });
     }
   } catch (error) {
-    errors.push(`State transition tracking failed: ${formatError(error)}`);
+    errors.push(createPhaseError('state', 'BROWSER_ERROR', `State transition tracking failed: ${formatError(error)}`));
   } finally {
     if (browser) {
       await browser.close();
@@ -255,7 +256,7 @@ export async function redirectChainReconstruction(targetUrl) {
   if (!isValidUrl(targetUrl)) {
     return {
       apis,
-      errors: [`Invalid target URL: ${targetUrl}`],
+      errors: [createPhaseError('redirect', 'INVALID_URL', `Invalid target URL: ${targetUrl}`)],
       metadata,
     };
   }
@@ -307,7 +308,7 @@ export async function redirectChainReconstruction(targetUrl) {
       });
     }
   } catch (error) {
-    errors.push(`Redirect chain reconstruction failed: ${formatError(error)}`);
+    errors.push(createPhaseError('redirect', 'BROWSER_ERROR', `Redirect chain reconstruction failed: ${formatError(error)}`));
   } finally {
     if (browser) {
       await browser.close();
@@ -470,6 +471,14 @@ function wait(milliseconds) {
   return new Promise((resolve) => {
     setTimeout(resolve, milliseconds);
   });
+}
+
+function createPhaseError(source, code, message) {
+  return createError(code, message, { phase: 'phantom', source });
+}
+
+function isTimeoutError(error) {
+  return /timeout|timed out/i.test(formatError(error));
 }
 
 function formatError(error) {

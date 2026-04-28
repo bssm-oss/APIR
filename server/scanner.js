@@ -97,6 +97,10 @@ export function createHttpClient() {
   });
 }
 
+export function createError(code, message, meta = {}) {
+  return { code, message, ...meta };
+}
+
 async function runPhase(phase, targetUrl, httpClient, phaseResults) {
   const startedAt = Date.now();
 
@@ -127,7 +131,7 @@ async function runPhase(phase, targetUrl, httpClient, phaseResults) {
       durationMs,
       result: {
         apis: [],
-        errors: [`${phase.name} phase failed: ${formatError(error)}`],
+        errors: [formatError(error, 'PHASE_FAILED', { phase: phase.name }, `${phase.name} phase failed`)],
         metadata: {
           phase: phase.name,
           durationMs,
@@ -193,13 +197,27 @@ function normalizePhaseResult(output, phaseName, durationMs) {
   return {
     ...result,
     apis: Array.isArray(result.apis) ? result.apis : [],
-    errors: Array.isArray(result.errors) ? result.errors : [],
+    errors: normalizeErrors(result.errors, phaseName),
     metadata: {
       ...(result.metadata ?? {}),
       phase: phaseName,
       durationMs,
     },
   };
+}
+
+function normalizeErrors(errors, phaseName) {
+  if (!Array.isArray(errors)) {
+    return [];
+  }
+
+  return errors.map((error) => {
+    if (error && typeof error === 'object' && typeof error.code === 'string' && typeof error.message === 'string') {
+      return error;
+    }
+
+    return createError('PHASE_FAILED', String(error), { phase: phaseName });
+  });
 }
 
 async function runUtilityAnalysis(targetUrl, phases, httpClient) {
@@ -258,16 +276,28 @@ async function fetchTargetHeaders(targetUrl, httpClient, errors) {
     });
     return response.headers ?? {};
   } catch (error) {
-    errors.push(`Header fingerprint fetch failed: ${formatError(error)}`);
+    errors.push(formatError(error, 'FETCH_FAILED', { phase: 'utility' }, 'Header fingerprint fetch failed'));
     return {};
   }
 }
 
 function normalizeOptions(options) {
+  const isQuick = options.quick === true;
   const skipPhases = new Set(normalizeSkipPhases(options.skipPhases ?? options.skip));
+
+  if (isQuick) {
+    const quickPhases = ['sourcemap', 'window', 'metadata'];
+    for (const phase of PHASES) {
+      if (!quickPhases.includes(phase.name)) {
+        skipPhases.add(phase.name);
+      }
+    }
+  }
+
   return {
     skipPhases,
     concurrency: normalizeConcurrency(options.concurrency),
+    quick: isQuick,
   };
 }
 
@@ -311,7 +341,7 @@ function safelyRunSync(label, errors, action) {
   try {
     return action();
   } catch (error) {
-    errors.push(`${label} failed: ${formatError(error)}`);
+    errors.push(formatError(error, 'PHASE_FAILED', { phase: 'utility' }, `${label} failed`));
     return {};
   }
 }
@@ -320,12 +350,17 @@ async function safelyRunAsync(label, errors, action) {
   try {
     return await action();
   } catch (error) {
-    errors.push(`${label} failed: ${formatError(error)}`);
+    errors.push(formatError(error, 'PHASE_FAILED', { phase: 'utility' }, `${label} failed`));
     return {};
   }
 }
 
-function formatError(error) {
+function formatError(error, code = 'PHASE_FAILED', meta = {}, prefix = '') {
+  const message = getErrorMessage(error);
+  return createError(code, prefix ? `${prefix}: ${message}` : message, meta);
+}
+
+function getErrorMessage(error) {
   if (error instanceof Error) {
     return error.message;
   }

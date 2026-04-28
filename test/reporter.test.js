@@ -38,6 +38,50 @@ describe('generateReport', () => {
     expect(report.buriedApis.filter((api) => api.path === '/api/hidden')).toHaveLength(1);
   });
 
+  test('merges source metadata when duplicate APIs are discovered across phases', () => {
+    const report = generateReport('https://example.test', {
+      phases: {
+        sourcemap: {
+          apis: [
+            {
+              path: '/api/hidden',
+              method: 'GET',
+              source: 'sourcemap',
+              confidence: 'low',
+              evidence: 'fetch("/api/hidden")',
+              foundIn: 'app.js.map',
+            },
+          ],
+        },
+        dynamic: {
+          apis: [
+            {
+              url: 'https://example.test/api/hidden',
+              method: 'get',
+              source: 'dynamic',
+              confidence: 'high',
+              evidence: ['XHR GET /api/hidden'],
+              foundIn: ['browser network'],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(report.buriedApis).toHaveLength(1);
+    expect(report.buriedApis[0]).toEqual(
+      expect.objectContaining({
+        method: 'GET',
+        path: '/api/hidden',
+        source: 'sourcemap,dynamic',
+        sources: ['sourcemap', 'dynamic'],
+        confidence: 'high',
+        evidence: ['fetch("/api/hidden")', 'XHR GET /api/hidden'],
+        foundIn: ['app.js.map', 'browser network'],
+      }),
+    );
+  });
+
   test('calculates risk score from documented versus total endpoint count', () => {
     const report = generateReport('https://example.test', {
       phases: {

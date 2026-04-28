@@ -1,6 +1,8 @@
 import * as cheerio from 'cheerio';
 import { SourceMapConsumer } from 'source-map';
 
+import { createError } from '../scanner.js';
+
 const API_LITERAL_PATTERNS = [
   { regex: /(["'`])(\/api[a-zA-Z0-9/_-]*)\1/g, method: 'UNKNOWN' },
   { regex: /(["'`])(\/graphql[a-zA-Z0-9/_-]*)\1/g, method: 'UNKNOWN' },
@@ -30,7 +32,7 @@ export async function extractSourceMaps(targetUrl, httpClient) {
   } catch (error) {
     return {
       apis,
-      errors: [`Failed to download HTML from ${targetUrl}: ${formatError(error)}`],
+      errors: [createPhaseError('FETCH_FAILED', `Failed to download HTML from ${targetUrl}: ${formatError(error)}`)],
       metadata: { targetUrl, scriptsFound: 0, sourceMapsFound: 0, sourcesParsed: 0 },
     };
   }
@@ -57,7 +59,7 @@ export async function extractSourceMaps(targetUrl, httpClient) {
           const sourceContent = consumer.sourceContentFor(sourceName, true);
 
           if (!sourceContent) {
-            errors.push(`Missing source content for ${sourceName} in ${scriptUrl}`);
+            errors.push(createPhaseError('PARSE_FAILED', `Missing source content for ${sourceName} in ${scriptUrl}`));
             continue;
           }
 
@@ -66,7 +68,7 @@ export async function extractSourceMaps(targetUrl, httpClient) {
         }
       });
     } catch (error) {
-      errors.push(`Failed to process source map for ${scriptUrl}: ${formatError(error)}`);
+      errors.push(createPhaseError('PARSE_FAILED', `Failed to process source map for ${scriptUrl}: ${formatError(error)}`));
     }
   }
 
@@ -192,6 +194,10 @@ function dedupeApis(apis) {
     seen.add(key);
     return true;
   });
+}
+
+function createPhaseError(code, message) {
+  return createError(code, message, { phase: 'sourcemap' });
 }
 
 function formatError(error) {

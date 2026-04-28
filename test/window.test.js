@@ -62,7 +62,10 @@ describe('harvestWindowObject', () => {
 
     expect(result.apis).toEqual([expect.objectContaining({ endpoint: '/api/good' })]);
     expect(result.errors).toEqual(
-      expect.arrayContaining([expect.stringContaining('inline script skipped'), expect.stringContaining('JSON parse failed')]),
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'SCRIPT_EXECUTION_FAILED', message: expect.stringContaining('inline script skipped'), phase: 'window' }),
+        expect.objectContaining({ code: 'PARSE_FAILED', message: expect.stringContaining('JSON parse failed'), phase: 'window' }),
+      ]),
     );
   });
 
@@ -72,7 +75,9 @@ describe('harvestWindowObject', () => {
     });
 
     expect(result.apis).toEqual([]);
-    expect(result.errors).toEqual(['window harvest failed: network unavailable']);
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: 'PHASE_FAILED', message: 'window harvest failed: network unavailable', phase: 'window' }),
+    ]);
     expect(result.metadata.frameworkState).toEqual({});
   });
 });

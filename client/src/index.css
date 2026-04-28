@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    background: theme('colors.terminal.bg');
+    font-family: theme('fontFamily.mono');
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    min-height: 100%;
+    background: theme('colors.terminal.bg');
+  }
+
+  body {
+    min-width: 20rem;
+    min-height: 100vh;
+    margin: 0;
+    color: theme('colors.terminal.text');
+    background:
+      radial-gradient(circle at 18% 0%, rgba(0, 255, 65, 0.1), transparent 22rem),
+      radial-gradient(circle at 82% 12%, rgba(0, 204, 204, 0.08), transparent 26rem),
+      linear-gradient(180deg, theme('colors.terminal.bg') 0%, #080808 100%);
+  }
+
+  button,
+  input {
+    font: inherit;
+  }
+
+  button:focus-visible,
+  input:focus-visible {
+    outline: 0.125rem solid theme('colors.terminal.green');
+    outline-offset: 0.125rem;
+  }
+
+  ::selection {
+    color: theme('colors.terminal.bg');
+    background: theme('colors.terminal.green');
+  }
+}
+
+@layer components {
+  .terminal-panel {
+    @apply border border-terminal-border bg-terminal-card/90 shadow-terminal;
+  }
+
+  .terminal-button {
+    @apply inline-flex items-center justify-center gap-2 rounded border border-terminal-border bg-terminal-card px-4 py-2 text-sm font-semibold text-terminal-text transition hover:border-terminal-green hover:bg-terminal-hover disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .terminal-button-primary {
+    @apply border-terminal-green bg-terminal-selected text-terminal-green shadow-glow hover:bg-terminal-hover;
+  }
+
+  .terminal-input {
+    @apply w-full rounded border border-terminal-input bg-terminal-card px-4 py-3 text-terminal-text placeholder:text-terminal-muted transition focus:border-terminal-green disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .terminal-label {
+    @apply text-xs font-semibold uppercase tracking-[0.16em] text-terminal-green;
+  }
+
+  .terminal-muted {
+    @apply text-terminal-muted;
+  }
+}

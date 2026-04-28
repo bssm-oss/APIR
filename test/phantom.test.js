@@ -55,9 +55,9 @@ describe('phantomFlow', () => {
     expect(result).toEqual({
       apis: [],
       errors: [
-        'Invalid target URL: not a url',
-        'Invalid target URL: not a url',
-        'Invalid target URL: not a url',
+        expect.objectContaining({ code: 'INVALID_URL', message: 'Invalid target URL: not a url', phase: 'phantom', source: 'hypermedia' }),
+        expect.objectContaining({ code: 'INVALID_URL', message: 'Invalid target URL: not a url', phase: 'phantom', source: 'state' }),
+        expect.objectContaining({ code: 'INVALID_URL', message: 'Invalid target URL: not a url', phase: 'phantom', source: 'redirect' }),
       ],
       metadata: {
         hypermedia: {

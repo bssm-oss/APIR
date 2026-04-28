@@ -70,7 +70,12 @@ describe('extractMetadata', () => {
     const result = await extractMetadata('https://example.test/bad');
 
     expect(result.apis).toEqual([]);
-    expect(result.errors).toEqual(expect.arrayContaining([expect.stringContaining('sitemap.xml parse failed')]));
-    expect(result.errors).toEqual(expect.arrayContaining([expect.stringContaining('/openapi.json probe failed')]));
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'FETCH_FAILED', message: expect.stringContaining('robots.txt fetch failed'), phase: 'metadata' }),
+        expect.objectContaining({ code: 'PARSE_FAILED', message: expect.stringContaining('sitemap.xml parse failed'), phase: 'metadata' }),
+        expect.objectContaining({ code: 'FETCH_FAILED', message: expect.stringContaining('/openapi.json probe failed'), phase: 'metadata' }),
+      ]),
+    );
   });
 });

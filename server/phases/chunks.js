@@ -2,6 +2,8 @@ import axios from 'axios';
 import * as acorn from 'acorn';
 import * as cheerio from 'cheerio';
 
+import { createError } from '../scanner.js';
+
 const SENSITIVE_CHUNK_TERMS = ['admin', 'dashboard', 'settings', 'billing', 'internal'];
 const API_PATTERNS = [
   /https?:\/\/[^\s"'`<>]+\/(?:api|graphql|rest|v\d+)\/?[^\s"'`<>]*/gi,
@@ -24,7 +26,7 @@ export async function analyzeChunks(targetUrl, httpClient = axios) {
   } catch (error) {
     return {
       apis,
-      errors: [`Invalid target URL: ${error.message}`],
+      errors: [createPhaseError('INVALID_URL', `Invalid target URL: ${formatError(error)}`)],
       metadata,
     };
   }
@@ -35,7 +37,7 @@ export async function analyzeChunks(targetUrl, httpClient = axios) {
   } catch (error) {
     return {
       apis,
-      errors: [`Failed to fetch main HTML: ${error.message}`],
+      errors: [createPhaseError('FETCH_FAILED', `Failed to fetch main HTML: ${formatError(error)}`)],
       metadata,
     };
   }
@@ -49,7 +51,7 @@ export async function analyzeChunks(targetUrl, httpClient = axios) {
       scriptContent = await fetchText(scriptUrl, httpClient);
       metadata.scriptsAnalyzed += 1;
     } catch (error) {
-      errors.push(`Failed to fetch script ${scriptUrl}: ${error.message}`);
+      errors.push(createPhaseError('FETCH_FAILED', `Failed to fetch script ${scriptUrl}: ${formatError(error)}`));
       continue;
     }
 
@@ -67,7 +69,7 @@ export async function analyzeChunks(targetUrl, httpClient = axios) {
         }
       }
     } catch (error) {
-      errors.push(`Failed to parse script ${scriptUrl}: ${error.message}`);
+      errors.push(createPhaseError('PARSE_FAILED', `Failed to parse script ${scriptUrl}: ${formatError(error)}`));
     }
   }
 
@@ -80,7 +82,7 @@ export async function analyzeChunks(targetUrl, httpClient = axios) {
       chunkContent = await fetchText(chunkUrl, httpClient);
       metadata.chunksAnalyzed += 1;
     } catch (error) {
-      errors.push(`Failed to fetch chunk ${chunkUrl}: ${error.message}`);
+      errors.push(createPhaseError('FETCH_FAILED', `Failed to fetch chunk ${chunkUrl}: ${formatError(error)}`));
       continue;
     }
 
@@ -296,4 +298,16 @@ function cleanEndpoint(endpoint) {
 function isSensitiveChunk(chunkUrl) {
   const lowerChunkUrl = chunkUrl.toLowerCase();
   return SENSITIVE_CHUNK_TERMS.some((term) => lowerChunkUrl.includes(term));
+}
+
+function createPhaseError(code, message) {
+  return createError(code, message, { phase: 'chunks' });
+}
+
+function formatError(error) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
 }

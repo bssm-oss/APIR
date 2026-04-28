@@ -75,6 +75,8 @@ describe('extractSourceMaps', () => {
 
     expect(result.apis).toEqual([]);
     expect(result.metadata.sourceMapsFound).toBe(0);
-    expect(result.errors).toEqual([expect.stringContaining('Failed to process source map')]);
+    expect(result.errors).toEqual([
+      expect.objectContaining({ code: 'PARSE_FAILED', message: expect.stringContaining('Failed to process source map'), phase: 'sourcemap' }),
+    ]);
   });
 });

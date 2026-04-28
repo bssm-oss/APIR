@@ -1,5 +1,7 @@
 import axios from 'axios';
 
+import { createError } from '../scanner.js';
+
 const GRAPHQL_INTROSPECTION_QUERY = '{ __schema { types { name kind fields { name type { name kind } } } } }';
 const TYPENAME_SNIPPET_PATTERN = /.{0,120}__typename.{0,120}/gs;
 
@@ -136,13 +138,13 @@ export async function analyzeGraphQL(targetUrl, httpClient = axios, sourcemapPha
 
     if (!schema) {
       if (postResponse.error && postResponse.status !== 404) {
-        errors.push(`graphql POST introspection failed: ${postResponse.error.message}`);
+        errors.push(createPhaseError('FETCH_FAILED', `graphql POST introspection failed: ${formatError(postResponse.error)}`));
       }
 
       const getResponse = await getIntrospection(httpClient, graphqlUrl);
       schema = getResponse.status === 200 ? extractSchema(getResponse.data) : null;
       if (!schema && getResponse.error && getResponse.status !== 404) {
-        errors.push(`graphql GET introspection failed: ${getResponse.error.message}`);
+        errors.push(createPhaseError('FETCH_FAILED', `graphql GET introspection failed: ${formatError(getResponse.error)}`));
       }
     }
 
@@ -174,3 +176,15 @@ export async function analyzeGraphQL(targetUrl, httpClient = axios, sourcemapPha
 }
 
 export default analyzeGraphQL;
+
+function createPhaseError(code, message) {
+  return createError(code, message, { phase: 'graphql' });
+}
+
+function formatError(error) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
+}

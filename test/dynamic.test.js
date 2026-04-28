@@ -50,7 +50,7 @@ describe('dynamicTriggerExposure', () => {
     expect(puppeteer.launch).not.toHaveBeenCalled();
     expect(result).toEqual({
       apis: [],
-      errors: [expect.stringContaining('Invalid target URL')],
+      errors: [expect.objectContaining({ code: 'INVALID_URL', message: expect.stringContaining('Invalid target URL'), phase: 'dynamic' })],
       metadata: expect.objectContaining({
         targetUrl: 'not a url',
         actionsAttempted: [],

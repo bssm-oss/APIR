@@ -17,3 +17,8 @@
 ## 2026-04-29 Verification Notes
 - Full `npm test` after env wiring still fails in `test/scanner.test.js` on the existing concurrent-mode GraphQL mock expectation: the implementation passes discovered GraphQL paths as a fourth argument, while one expectation only allows three arguments.
 - A later `npm run lint` rerun surfaced `server/phases/graphql.js:20` (`no-empty`) outside the env-wiring edit set.
+
+## 2026-04-29 React TypeScript Tailwind Client Notes
+
+- `npm install` in `client/` completed but reported 2 moderate audit findings; no forced audit fix was applied because it can introduce breaking dependency changes.
+- Vite dev server used `http://127.0.0.1:5175/` during manual verification because ports 5173 and 5174 were already occupied by other local apps.

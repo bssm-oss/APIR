@@ -1,5 +1,7 @@
 import puppeteer from 'puppeteer';
 
+import { createError } from '../scanner.js';
+
 const API_URL_PATTERNS = [
   /\/api(?:\/|$|\?)/i,
   /\/graphql(?:\/|$|\?)/i,
@@ -24,7 +26,7 @@ export async function analyzeServiceWorker(targetUrl) {
   } catch (error) {
     return {
       apis,
-      errors: [`Invalid target URL: ${error.message}`],
+      errors: [createPhaseError('INVALID_URL', `Invalid target URL: ${formatError(error)}`)],
       metadata,
     };
   }
@@ -61,7 +63,7 @@ export async function analyzeServiceWorker(targetUrl) {
           return requests.map((request) => request.url);
         }, cacheName);
       } catch (error) {
-        errors.push(`Failed to read cache ${cacheName}: ${error.message}`);
+        errors.push(createPhaseError('BROWSER_ERROR', `Failed to read cache ${cacheName}: ${formatError(error)}`));
         continue;
       }
 
@@ -84,7 +86,7 @@ export async function analyzeServiceWorker(targetUrl) {
       }
     }
   } catch (error) {
-    errors.push(`Service worker analysis failed: ${error.message}`);
+    errors.push(createPhaseError('BROWSER_ERROR', `Service worker analysis failed: ${formatError(error)}`));
   } finally {
     if (browser) {
       await browser.close();
@@ -116,4 +118,16 @@ function isApiLikeUrl(value) {
   } catch {
     return API_URL_PATTERNS.some((pattern) => pattern.test(value));
   }
+}
+
+function createPhaseError(code, message) {
+  return createError(code, message, { phase: 'serviceworker' });
+}
+
+function formatError(error) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
 }

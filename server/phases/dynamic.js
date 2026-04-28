@@ -1,5 +1,7 @@
 import puppeteer from 'puppeteer';
 
+import { createError } from '../scanner.js';
+
 const API_URL_PATTERNS = [
   /\/api(?:\/|$|\?)/i,
   /\/graphql(?:\/|$|\?)/i,
@@ -62,7 +64,7 @@ export async function dynamicTriggerExposure(targetUrl) {
   } catch (error) {
     return {
       apis,
-      errors: [`Invalid target URL: ${formatError(error)}`],
+      errors: [createPhaseError('INVALID_URL', `Invalid target URL: ${formatError(error)}`)],
       metadata,
     };
   }
@@ -91,7 +93,7 @@ export async function dynamicTriggerExposure(targetUrl) {
       }
 
       request.continue().catch((error) => {
-        errors.push(`Failed to continue request ${request.url()}: ${formatError(error)}`);
+        errors.push(createPhaseError('NETWORK_ERROR', `Failed to continue request ${request.url()}: ${formatError(error)}`));
       });
     });
 
@@ -111,7 +113,7 @@ export async function dynamicTriggerExposure(targetUrl) {
           const body = await response.text();
           record.errorResponseBody = body.slice(0, RESPONSE_BODY_LIMIT);
         } catch (error) {
-          errors.push(`Failed to read response body for ${record.url}: ${formatError(error)}`);
+          errors.push(createPhaseError('NETWORK_ERROR', `Failed to read response body for ${record.url}: ${formatError(error)}`));
         }
       }
     });
@@ -146,7 +148,7 @@ export async function dynamicTriggerExposure(targetUrl) {
 
     await waitForNetworkSettling(page);
   } catch (error) {
-    errors.push(`Dynamic trigger exposure failed: ${formatError(error)}`);
+    errors.push(createPhaseError('BROWSER_ERROR', `Dynamic trigger exposure failed: ${formatError(error)}`));
   } finally {
     if (browser) {
       await browser.close();
@@ -179,7 +181,7 @@ async function safeAction(actionName, errors, metadata, action) {
   try {
     await action();
   } catch (error) {
-    errors.push(`${actionName} failed: ${formatError(error)}`);
+    errors.push(createPhaseError(isTimeoutError(error) ? 'TIMEOUT' : 'BROWSER_ERROR', `${actionName} failed: ${formatError(error)}`));
   }
 }
 
@@ -221,7 +223,7 @@ async function clickInteractiveElements(page, errors) {
       await target.click({ delay: 25 });
       await waitForNetworkSettling(page);
     } catch (error) {
-      errors.push(`interactive element click skipped: ${formatError(error)}`);
+      errors.push(createPhaseError(isTimeoutError(error) ? 'TIMEOUT' : 'ELEMENT_NOT_FOUND', `interactive element click skipped: ${formatError(error)}`));
     }
   }
 }
@@ -237,7 +239,7 @@ async function fillAndSubmitForms(page, errors) {
       await submitTarget(target, page);
       await waitForNetworkSettling(page);
     } catch (error) {
-      errors.push(`form automation skipped: ${formatError(error)}`);
+      errors.push(createPhaseError(isTimeoutError(error) ? 'TIMEOUT' : 'ELEMENT_NOT_FOUND', `form automation skipped: ${formatError(error)}`));
     }
   }
 }
@@ -263,7 +265,7 @@ async function injectSearchPayloads(page, errors) {
       await field.press('Enter');
       await waitForNetworkSettling(page);
     } catch (error) {
-      errors.push(`SQL injection search automation skipped: ${formatError(error)}`);
+      errors.push(createPhaseError(isTimeoutError(error) ? 'TIMEOUT' : 'ELEMENT_NOT_FOUND', `SQL injection search automation skipped: ${formatError(error)}`));
     }
   }
 }
@@ -449,6 +451,14 @@ function shouldCaptureResponseBody(record, response) {
 
   const contentType = response.headers()['content-type'] ?? '';
   return /(?:json|text|html|xml)/i.test(contentType);
+}
+
+function createPhaseError(code, message) {
+  return createError(code, message, { phase: 'dynamic' });
+}
+
+function isTimeoutError(error) {
+  return /timeout|timed out/i.test(formatError(error));
 }
 
 function formatError(error) {
