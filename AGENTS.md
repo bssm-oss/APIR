@@ -19,7 +19,7 @@ Use this project only for educational work and authorized security audits.
 - Run lint: `npm run lint`
 - Format server code: `npm run format`
 
-Note: `npm run client` is defined in the root package, but the current repository state does not include `client/package.json`. Do not claim the frontend is runnable until that package exists.
+Note: `npm run client` runs the Vite React frontend from the checked-in `client/package.json`.
 
 ## Phase Implementations
 
