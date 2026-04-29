@@ -10,12 +10,13 @@ export default function UrlInput({ onScan }: UrlInputProps) {
   const [url, setUrl] = useState('');
   const [showPhaseSelector, setShowPhaseSelector] = useState(false);
   const [selectedPhases, setSelectedPhases] = useState<Set<string>>(() => new Set(PHASES));
+  const [activeMode, setActiveMode] = useState(false);
 
   const skippedPhases = useMemo(() => PHASES.filter((phase) => !selectedPhases.has(phase)), [selectedPhases]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onScan(url, { skipPhases: skippedPhases });
+    onScan(url, { skipPhases: skippedPhases, active: activeMode });
   }
 
   function handleQuickScan() {
@@ -23,6 +24,7 @@ export default function UrlInput({ onScan }: UrlInputProps) {
     setSelectedPhases(quickPhases);
     onScan(url, {
       quick: true,
+      active: false,
       skipPhases: PHASES.filter((phase) => !quickPhases.has(phase)),
     });
   }
@@ -71,13 +73,26 @@ export default function UrlInput({ onScan }: UrlInputProps) {
           </div>
         </div>
 
-        <div className="flex flex-col gap-3 border-t border-terminal-border pt-4">
+          <div className="flex flex-col gap-3 border-t border-terminal-border pt-4">
+          <label className="flex items-start gap-3 rounded border border-terminal-border bg-terminal-bg/50 p-4 text-sm text-terminal-muted">
+            <input
+              className="mt-1 accent-terminal-green"
+              type="checkbox"
+              checked={activeMode}
+              onChange={(event) => setActiveMode(event.target.checked)}
+            />
+            <span>
+              <span className="block font-semibold uppercase tracking-[0.14em] text-terminal-text">Enable active browser phases</span>
+              <span className="mt-1 block leading-5">Runs dynamic, service worker, and Phantom Flow automation. Use only on explicitly authorized targets.</span>
+            </span>
+          </label>
+
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <button className="terminal-button w-full sm:w-auto" type="button" onClick={() => setShowPhaseSelector((value) => !value)}>
               {showPhaseSelector ? 'Hide Phase Selector' : 'Show Phase Selector'}
             </button>
             <p className="text-xs uppercase tracking-[0.16em] text-terminal-muted">
-              {selectedPhases.size}/{PHASES.length} phases armed
+              {selectedPhases.size}/{PHASES.length} phases selected / active {activeMode ? 'on' : 'off'}
             </p>
           </div>
 

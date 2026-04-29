@@ -1,6 +1,7 @@
 export interface ScanOptions {
   skipPhases?: string[];
   quick?: boolean;
+  active?: boolean;
 }
 
 export type ApiConfidence = 'high' | 'medium' | 'low' | 'unknown';
@@ -36,7 +37,10 @@ export interface ScanResponse {
     phaseTimings?: Record<string, number>;
     skippedPhases?: string[];
     concurrency?: number;
-    utilityErrors?: string[];
+    active?: boolean;
+    phaseErrors?: Record<string, unknown[]>;
+    phaseMetadata?: Record<string, unknown>;
+    utilityErrors?: unknown[];
   };
 }
 

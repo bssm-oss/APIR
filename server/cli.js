@@ -24,6 +24,7 @@ program
   .argument('[targetUrl]', 'Target URL to scan')
   .option('--skip <phases>', 'Comma-separated phase names to skip')
   .option('--quick', 'Quick scan: only sourcemap, window, metadata phases')
+  .option('--active', 'Enable browser-driven active phases: dynamic, serviceworker, phantom')
   .option('--output <file>', 'Write JSON report to a file instead of stdout')
   .option('--port <port>', 'Port to use when starting server mode', parsePort)
   .option('--server', 'Start the Express server instead of running a scan')
@@ -41,6 +42,7 @@ program
     const report = await scanner.scan(targetUrl, {
       skipPhases: parseSkipPhases(options.skip),
       quick: options.quick ?? false,
+      active: options.active ?? false,
     });
     const serializedReport = `${JSON.stringify(report, null, 2)}\n`;
 
