@@ -1,3 +1,4 @@
+import { jest } from '@jest/globals';
 import nock from 'nock';
 
 import { checkCORS } from '../lib/cors-checker.js';
@@ -42,5 +43,15 @@ describe('checkCORS', () => {
     const result = await checkCORS('https://api.example.test/down');
 
     expect(result.vulnerable).toEqual([]);
+  });
+
+  test('skips endpoints denied by the request policy', async () => {
+    const requestPolicy = { isSameOrigin: jest.fn((endpoint) => endpoint === 'https://example.test/api/users') };
+    nock('https://example.test').options('/api/users').reply(204, '', { 'access-control-allow-origin': '*' });
+
+    const result = await checkCORS(['https://example.test/api/users', 'https://evil.test/api/users'], undefined, { requestPolicy });
+
+    expect(result.vulnerable).toEqual([{ endpoint: 'https://example.test/api/users', origin: 'https://evil.com', acao: '*' }]);
+    expect(result.skipped).toEqual([{ endpoint: 'https://evil.test/api/users', reason: 'disallowed_url' }]);
   });
 });
