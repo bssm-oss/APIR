@@ -3,9 +3,11 @@ import * as cheerio from 'cheerio';
 import { parseStringPromise } from 'xml2js';
 
 import { createError } from '../scanner.js';
+import { resolveAllowedSameOriginUrl } from '../../lib/url-policy.js';
 
 const API_PATTERN = /\/api(?:\/|$)|\/v\d+(?:\/|$)/i;
 const DOC_PATHS = ['/swagger.json', '/openapi.json', '/api-docs', '/redoc'];
+const GRAPHQL_PATTERN = /\/graphql(?:\/|$|[?#])/i;
 
 function resolveTargetUrl(targetUrl, path = '') {
   const baseUrl = new URL(targetUrl);
@@ -141,6 +143,7 @@ export async function extractMetadata(targetUrl, httpClient = axios) {
     ldJsonData: [],
     openGraphData: [],
     discoveredDocs: {},
+    discoveredGraphQLPaths: [],
   };
 
   const robotsUrl = resolveTargetUrl(targetUrl, '/robots.txt');
@@ -165,10 +168,17 @@ export async function extractMetadata(targetUrl, httpClient = axios) {
       const parsedSitemap = await parseStringPromise(stringifyContent(sitemapResponse.data));
       metadata.sitemapUrls = [...new Set(collectSitemapLocs(parsedSitemap))];
       for (const url of metadata.sitemapUrls.filter((url) => API_PATTERN.test(url))) {
+        const resolvedUrl = resolveAllowedSameOriginUrl(url, targetUrl);
+        if (!resolvedUrl) {
+          continue;
+        }
+
+        addDiscoveredGraphQLPath(metadata, resolvedUrl, targetUrl);
+
         addUniqueApi(
           apis,
           seenUrls,
-          createApiRecord(url, 'medium', 'sitemap.xml url', { sitemapUrl: url }),
+          createApiRecord(resolvedUrl, 'medium', 'sitemap.xml url', { sitemapUrl: url }),
         );
       }
     } catch (error) {
@@ -190,10 +200,17 @@ export async function extractMetadata(targetUrl, httpClient = axios) {
 
       metadata.ldJsonData.push(parsedJson);
       for (const id of collectIdFields(parsedJson).filter((id) => API_PATTERN.test(id))) {
+        const resolvedUrl = resolveAllowedSameOriginUrl(id, targetUrl);
+        if (!resolvedUrl) {
+          continue;
+        }
+
+        addDiscoveredGraphQLPath(metadata, resolvedUrl, targetUrl);
+
         addUniqueApi(
           apis,
           seenUrls,
-          createApiRecord(id, 'medium', 'json-ld @id', { id }),
+          createApiRecord(resolvedUrl, 'medium', 'json-ld @id', { id }),
         );
       }
     });
@@ -207,10 +224,17 @@ export async function extractMetadata(targetUrl, httpClient = axios) {
 
       const openGraphEntry = { property, content };
       metadata.openGraphData.push(openGraphEntry);
+      const resolvedUrl = resolveAllowedSameOriginUrl(content, targetUrl);
+      if (!resolvedUrl) {
+        return;
+      }
+
+      addDiscoveredGraphQLPath(metadata, resolvedUrl, targetUrl);
+
       addUniqueApi(
         apis,
         seenUrls,
-        createApiRecord(content, 'medium', 'open graph api keyword', openGraphEntry),
+        createApiRecord(resolvedUrl, 'medium', 'open graph api keyword', openGraphEntry),
       );
     });
   } else if (htmlResponse.error) {
@@ -229,6 +253,9 @@ export async function extractMetadata(targetUrl, httpClient = axios) {
 
     const schema = docResponse.data;
     metadata.discoveredDocs[docPath] = schema;
+    if (GRAPHQL_PATTERN.test(docPath)) {
+      metadata.discoveredGraphQLPaths.push(docPath);
+    }
     addUniqueApi(
       apis,
       seenUrls,
@@ -243,6 +270,23 @@ export default extractMetadata;
 
 function createPhaseError(code, message) {
   return createError(code, message, { phase: 'metadata' });
+}
+
+function addDiscoveredGraphQLPath(metadata, value, targetUrl) {
+  if (!GRAPHQL_PATTERN.test(value)) {
+    return;
+  }
+
+  const target = new URL(targetUrl);
+  const graphqlUrl = new URL(value, targetUrl);
+  if (graphqlUrl.origin !== target.origin) {
+    return;
+  }
+
+  const path = `${graphqlUrl.pathname}${graphqlUrl.search}`;
+  if (!metadata.discoveredGraphQLPaths.includes(path)) {
+    metadata.discoveredGraphQLPaths.push(path);
+  }
 }
 
 function formatError(error) {

@@ -45,4 +45,27 @@ describe('analyzeGraphQL', () => {
       ]),
     );
   });
+
+  test('ignores unsafe or off-origin metadata GraphQL paths', async () => {
+    const calls = [];
+    const httpClient = {
+      post: jest.fn(async (url) => {
+        calls.push(['POST', url]);
+        throw createNotFoundError();
+      }),
+      get: jest.fn(async (url) => {
+        calls.push(['GET', url]);
+        throw createNotFoundError();
+      }),
+    };
+
+    await analyzeGraphQL('https://example.test/app', httpClient, {}, ['https://evil.test/graphql', 'http://127.0.0.1/graphql', 'file:///etc/passwd', '/api/graphql']);
+
+    expect(calls).toEqual([
+      ['POST', 'https://example.test/graphql'],
+      ['GET', 'https://example.test/graphql'],
+      ['POST', 'https://example.test/api/graphql'],
+      ['GET', 'https://example.test/api/graphql'],
+    ]);
+  });
 });

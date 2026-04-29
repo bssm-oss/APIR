@@ -1,6 +1,7 @@
 import axios from 'axios';
 
 import { createError } from '../scanner.js';
+import { resolveAllowedSameOriginUrl } from '../../lib/url-policy.js';
 
 const GRAPHQL_INTROSPECTION_QUERY = '{ __schema { types { name kind fields { name type { name kind } } } } }';
 const TYPENAME_SNIPPET_PATTERN = /.{0,120}__typename.{0,120}/gs;
@@ -15,7 +16,10 @@ function resolveGraphQLUrls(targetUrl, customPaths) {
 
   for (const customPath of customPaths) {
     try {
-      const graphqlUrl = new URL(customPath, targetUrl).toString();
+      const graphqlUrl = resolveAllowedSameOriginUrl(customPath, targetUrl);
+      if (!graphqlUrl) {
+        continue;
+      }
       if (!urls.includes(graphqlUrl)) {
         urls.push(graphqlUrl);
       }
