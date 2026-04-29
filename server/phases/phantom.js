@@ -1,6 +1,18 @@
 import puppeteer from 'puppeteer';
 
 import { createError } from '../scanner.js';
+import { isAllowedUrl } from '../../lib/url-policy.js';
+
+const API_URL_PATTERNS = [
+  /\/api(?:\/|$|\?)/i,
+  /\/graphql(?:\/|$|\?)/i,
+  /\/rest(?:\/|$|\?)/i,
+  /\/rpc(?:\/|$|\?)/i,
+  /\/v\d+(?:\/|$|\?)/i,
+  /(?:api|graphql|endpoint|rpc|ajax|json)/i,
+];
+
+const STATIC_ASSET_PATTERN = /\.(?:css|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|otf|eot|mp4|webm|mp3|wav|pdf|zip|map)(?:$|[?#])/i;
 
 const PAGE_TIMEOUT_MS = 30000;
 const INTERACTION_TIMEOUT_MS = 5000;
@@ -29,6 +41,7 @@ export async function hypermediaMapping(targetUrl) {
   try {
     browser = await puppeteer.launch({ headless: PUPPETEER_HEADLESS });
     const page = await browser.newPage();
+    await installRequestPolicy(page);
     await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: PAGE_TIMEOUT_MS });
 
     const elements = await page.$$('a, form, button');
@@ -69,7 +82,8 @@ export async function hypermediaMapping(targetUrl) {
         await waitForInteraction(page);
         page.off('request', requestListener);
 
-        for (const request of requests) {
+        const apiRequests = requests.filter((request) => isAllowedUrl(request.url) && isApiLikeUrl(request.url));
+        for (const request of apiRequests) {
           apis.push({
             url: request.url,
             method: request.method,
@@ -83,7 +97,7 @@ export async function hypermediaMapping(targetUrl) {
           });
         }
 
-        metadata.requestsCaptured += requests.length;
+        metadata.requestsCaptured += apiRequests.length;
         await disposeElements(currentElements);
       } catch (error) {
         page.off('request', requestListener);
@@ -122,6 +136,7 @@ export async function stateTransitionTracking(targetUrl) {
   try {
     browser = await puppeteer.launch({ headless: PUPPETEER_HEADLESS });
     const page = await browser.newPage();
+    await installRequestPolicy(page);
     await page.evaluateOnNewDocument(() => {
       globalThis.__APIR_PHANTOM_ACTIONS__ = [];
 
@@ -226,8 +241,13 @@ export async function stateTransitionTracking(targetUrl) {
     metadata.actionsObserved = actions;
 
     for (const action of actions) {
+      const endpoint = inferEndpointFromAction(action.type);
+      if (!isApiLikeUrl(endpoint)) {
+        continue;
+      }
+
       apis.push({
-        endpoint: inferEndpointFromAction(action.type),
+        endpoint,
         action: action.type,
         source: 'phantom-state',
         confidence: 'low',
@@ -265,6 +285,7 @@ export async function redirectChainReconstruction(targetUrl) {
   try {
     browser = await puppeteer.launch({ headless: PUPPETEER_HEADLESS });
     const page = await browser.newPage();
+    await installRequestPolicy(page);
     const redirects = [];
 
     page.on('response', (response) => {
@@ -275,13 +296,18 @@ export async function redirectChainReconstruction(targetUrl) {
 
       const request = response.request();
       const headers = response.headers();
+      const resolvedLocation = resolveRedirectLocation(response.url(), headers.location);
+      if (!isAllowedUrl(resolvedLocation ?? response.url()) || !isApiLikeUrl(resolvedLocation ?? response.url())) {
+        return;
+      }
+
       redirects.push({
         request: createRequestSnapshot(request),
         response: {
           url: response.url(),
           status,
           headers,
-          location: headers.location ?? null,
+          location: resolvedLocation,
         },
       });
     });
@@ -431,6 +457,31 @@ function inferEndpointFromAction(actionName) {
   return value.replace(/(?:request|success|failure|pending|fulfilled|rejected)$/i, '').replace(/[:_]+$/g, '');
 }
 
+async function installRequestPolicy(page) {
+  await page.setRequestInterception(true);
+  page.on('request', (request) => {
+    if (isAllowedUrl(request.url())) {
+      request.continue().catch(() => {});
+      return;
+    }
+
+    request.abort().catch(() => {});
+  });
+}
+
+function isApiLikeUrl(value) {
+  if (!value || STATIC_ASSET_PATTERN.test(value)) {
+    return false;
+  }
+
+  try {
+    const url = new URL(value);
+    return API_URL_PATTERNS.some((pattern) => pattern.test(`${url.pathname}${url.search}`));
+  } catch {
+    return API_URL_PATTERNS.some((pattern) => pattern.test(String(value)));
+  }
+}
+
 function resolveRedirectLocation(baseUrl, location) {
   if (!location) {
     return null;
@@ -459,12 +510,7 @@ function dedupeApis(apis) {
 }
 
 function isValidUrl(value) {
-  try {
-    new URL(value);
-    return true;
-  } catch {
-    return false;
-  }
+  return isAllowedUrl(value);
 }
 
 function wait(milliseconds) {

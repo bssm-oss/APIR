@@ -1,6 +1,7 @@
 import puppeteer from 'puppeteer';
 
 import { createError } from '../scanner.js';
+import { isAllowedUrl } from '../../lib/url-policy.js';
 
 const API_URL_PATTERNS = [
   /\/api(?:\/|$|\?)/i,
@@ -85,6 +86,13 @@ export async function dynamicTriggerExposure(targetUrl) {
     await page.setRequestInterception(true);
     page.on('request', (request) => {
       metadata.networkRequestsCaptured += 1;
+
+      if (!isAllowedUrl(request.url())) {
+        request.abort().catch((error) => {
+          errors.push(createPhaseError('NETWORK_ERROR', `Failed to abort disallowed request ${request.url()}: ${formatError(error)}`));
+        });
+        return;
+      }
 
       if (isApiLikeRequest(request)) {
         const record = createRequestRecord(request, currentAction);

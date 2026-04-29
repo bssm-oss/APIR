@@ -3,6 +3,7 @@ import { jest } from '@jest/globals';
 function createPageMock() {
   return {
     goto: jest.fn().mockResolvedValue(undefined),
+    setRequestInterception: jest.fn().mockResolvedValue(undefined),
     $$: jest.fn().mockResolvedValue([]),
     on: jest.fn(),
     off: jest.fn(),

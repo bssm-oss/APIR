@@ -1,6 +1,7 @@
 import puppeteer from 'puppeteer';
 
 import { createError } from '../scanner.js';
+import { isAllowedUrl } from '../../lib/url-policy.js';
 
 const API_URL_PATTERNS = [
   /\/api(?:\/|$|\?)/i,
@@ -35,6 +36,15 @@ export async function analyzeServiceWorker(targetUrl) {
   try {
     browser = await puppeteer.launch({ headless: PUPPETEER_HEADLESS });
     const page = await browser.newPage();
+    await page.setRequestInterception(true);
+    page.on('request', (request) => {
+      if (isAllowedUrl(request.url())) {
+        request.continue().catch(() => {});
+        return;
+      }
+
+      request.abort().catch(() => {});
+    });
 
     await page.goto(targetUrl, {
       waitUntil: 'networkidle2',
@@ -70,7 +80,7 @@ export async function analyzeServiceWorker(targetUrl) {
       metadata.cachedRequestsAnalyzed += requestUrls.length;
 
       for (const requestUrl of requestUrls) {
-        if (!isApiLikeUrl(requestUrl) || seenUrls.has(requestUrl)) {
+        if (!isAllowedUrl(requestUrl) || !isApiLikeUrl(requestUrl) || seenUrls.has(requestUrl)) {
           continue;
         }
 
