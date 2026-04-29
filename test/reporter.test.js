@@ -97,6 +97,27 @@ describe('generateReport', () => {
     expect(report.riskScore).toBe(50);
   });
 
+  test('does not deduplicate same path and method across different origins', () => {
+    const report = generateReport('https://example.test', {
+      phases: {
+        chunks: {
+          apis: [
+            { url: 'https://api-one.example.test/api/users', method: 'GET', source: 'chunks' },
+            { url: 'https://api-two.example.test/api/users', method: 'GET', source: 'chunks' },
+          ],
+        },
+      },
+    });
+
+    expect(report.buriedApis).toHaveLength(2);
+    expect(report.buriedApis).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ url: 'https://api-one.example.test/api/users', path: '/api/users' }),
+        expect.objectContaining({ url: 'https://api-two.example.test/api/users', path: '/api/users' }),
+      ]),
+    );
+  });
+
   test('returns zero risk when no endpoints are discovered', () => {
     const report = generateReport('https://example.test', { phases: {} });
 
