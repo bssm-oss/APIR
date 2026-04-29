@@ -63,7 +63,7 @@ describe('Scanner', () => {
     );
     const { Scanner } = await loadScannerWithMocks(overrides);
 
-    const report = await new Scanner({ httpClient: createHttpClient() }).scan('https://example.test/');
+    const report = await new Scanner({ httpClient: createHttpClient() }).scan('https://example.test/', { active: true });
 
     expect(callOrder).toEqual(phaseNames);
     expect(report.metadata.phaseTimings).toEqual(expect.objectContaining(Object.fromEntries(phaseNames.map((name) => [name, expect.any(Number)]))));
@@ -74,13 +74,35 @@ describe('Scanner', () => {
     const { Scanner, mocks } = await loadScannerWithMocks();
 
     const report = await new Scanner({ httpClient: createHttpClient() }).scan('https://example.test/', {
-      skip: 'dynamic,phantom,unknown',
+      active: true,
+      skip: 'dynamic,phantom',
     });
 
     expect(mocks.dynamic).not.toHaveBeenCalled();
     expect(mocks.phantom).not.toHaveBeenCalled();
     expect(report.metadata.skippedPhases).toEqual(['dynamic', 'phantom']);
     expect(report.metadata.phaseTimings.dynamic).toBe(0);
+  });
+
+  test('rejects unknown skip phases before phase execution', async () => {
+    const { Scanner, mocks } = await loadScannerWithMocks();
+
+    await expect(new Scanner({ httpClient: createHttpClient() }).scan('https://example.test/', { skip: 'dynamic,unknown' })).rejects.toThrow(
+      'Invalid skip phase: unknown',
+    );
+    expect(mocks.sourcemap).not.toHaveBeenCalled();
+  });
+
+  test('skips active browser phases by default', async () => {
+    const { Scanner, mocks } = await loadScannerWithMocks();
+
+    const report = await new Scanner({ httpClient: createHttpClient() }).scan('https://example.test/');
+
+    expect(mocks.dynamic).not.toHaveBeenCalled();
+    expect(mocks.serviceworker).not.toHaveBeenCalled();
+    expect(mocks.phantom).not.toHaveBeenCalled();
+    expect(report.metadata.active).toBe(false);
+    expect(report.metadata.skippedPhases).toEqual(expect.arrayContaining(['dynamic', 'serviceworker', 'phantom']));
   });
 
   test('quick scans only run sourcemap, window, and metadata phases', async () => {
@@ -98,7 +120,7 @@ describe('Scanner', () => {
     expect(mocks.graphql).not.toHaveBeenCalled();
     expect(mocks.serviceworker).not.toHaveBeenCalled();
     expect(mocks.phantom).not.toHaveBeenCalled();
-    expect(report.metadata.skippedPhases).toEqual(['chunks', 'dynamic', 'graphql', 'serviceworker', 'phantom']);
+    expect(report.metadata.skippedPhases).toEqual(expect.arrayContaining(['chunks', 'dynamic', 'graphql', 'serviceworker', 'phantom']));
     expect(report.metadata.phaseTimings.chunks).toBe(0);
   });
 
@@ -113,7 +135,7 @@ describe('Scanner', () => {
     );
     const { Scanner, mocks } = await loadScannerWithMocks({ sourcemap });
 
-    const scanPromise = new Scanner({ httpClient: createHttpClient() }).scan('https://example.test/', { concurrency: 4 });
+    const scanPromise = new Scanner({ httpClient: createHttpClient() }).scan('https://example.test/', { concurrency: 4, active: true });
     await Promise.resolve();
 
     expect(mocks.window).toHaveBeenCalled();
@@ -133,7 +155,7 @@ describe('Scanner', () => {
       expect.objectContaining({ apis: sourcemapOutput.apis }),
       expect.any(Array),
     );
-    expect(report.metadata.concurrency).toBe(4);
+    expect(report.metadata.concurrency).toBe(3);
   });
 
   test('normalizes phase failures into report metadata instead of throwing', async () => {
@@ -145,6 +167,9 @@ describe('Scanner', () => {
 
     expect(mocks.chunks).toHaveBeenCalled();
     expect(report.metadata.phaseTimings.chunks).toEqual(expect.any(Number));
+    expect(report.metadata.phaseErrors.chunks).toEqual([
+      expect.objectContaining({ code: 'PHASE_FAILED', message: expect.stringContaining('chunks phase failed: parser exploded'), phase: 'chunks' }),
+    ]);
     expect(report.buriedApis).not.toEqual(expect.arrayContaining([expect.objectContaining({ path: '/api/chunks' })]));
   });
 
@@ -172,7 +197,17 @@ describe('Scanner', () => {
   test('rejects invalid target URLs before phase execution', async () => {
     const { Scanner, mocks } = await loadScannerWithMocks();
 
-    await expect(new Scanner({ httpClient: createHttpClient() }).scan('not a url')).rejects.toThrow('Invalid target URL');
+    await expect(new Scanner({ httpClient: createHttpClient() }).scan('not a url')).rejects.toThrow('Invalid URL');
     expect(mocks.sourcemap).not.toHaveBeenCalled();
   });
+
+  test.each(['ftp://example.test/', 'file:///etc/passwd', 'http://localhost/', 'http://127.0.0.1/', 'http://10.0.0.1/', 'http://172.16.0.1/', 'http://192.168.0.1/', 'http://169.254.169.254/'])(
+    'rejects disallowed target URL %s before phase execution',
+    async (targetUrl) => {
+      const { Scanner, mocks } = await loadScannerWithMocks();
+
+      await expect(new Scanner({ httpClient: createHttpClient() }).scan(targetUrl)).rejects.toThrow(/Disallowed|Invalid/i);
+      expect(mocks.sourcemap).not.toHaveBeenCalled();
+    },
+  );
 });

@@ -12,10 +12,13 @@ import { analyzeJWT } from '../lib/jwt-analyzer.js';
 import { checkCORS } from '../lib/cors-checker.js';
 import { fingerprint } from '../lib/fingerprint.js';
 import { generateReport } from '../lib/reporter.js';
+import { assertAllowedTargetUrl, createRequestPolicy, limitCorsEndpoints } from '../lib/url-policy.js';
 
 const DEFAULT_TIMEOUT_MS = Number.parseInt(process.env.SCAN_TIMEOUT_MS ?? '30000', 10);
 const DEFAULT_CONCURRENCY = 1;
+const MAX_CONCURRENCY = Number.parseInt(process.env.SCAN_MAX_CONCURRENCY ?? '3', 10);
 const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
+const ACTIVE_PHASES = new Set(['dynamic', 'serviceworker', 'phantom']);
 
 const PHASES = [
   {
@@ -59,17 +62,18 @@ export class Scanner {
   }
 
   async scan(targetUrl, options = {}) {
-    validateTargetUrl(targetUrl);
+    const requestPolicy = createRequestPolicy(targetUrl);
+    const normalizedTargetUrl = requestPolicy.targetUrl;
 
     const normalizedOptions = normalizeOptions(options);
     const phases = {};
     const timings = {};
 
-    await runScanPhases(normalizedOptions, targetUrl, this.httpClient, phases, timings);
+    await runScanPhases(normalizedOptions, normalizedTargetUrl, this.httpClient, phases, timings);
 
-    const utilityResults = await runUtilityAnalysis(targetUrl, phases, this.httpClient);
+    const utilityResults = await runUtilityAnalysis(normalizedTargetUrl, phases, this.httpClient, requestPolicy);
     const scanResults = {
-      targetUrl,
+      targetUrl: normalizedTargetUrl,
       phases,
       jwtTokens: utilityResults.jwtAnalysis,
       corsResults: utilityResults.corsResults,
@@ -78,11 +82,14 @@ export class Scanner {
         phaseTimings: timings,
         skippedPhases: [...normalizedOptions.skipPhases],
         concurrency: normalizedOptions.concurrency,
+        active: normalizedOptions.active,
+        phaseErrors: collectPhaseErrors(phases),
+        phaseMetadata: collectPhaseMetadata(phases),
         utilityErrors: utilityResults.errors,
       },
     };
 
-    const report = generateReport(targetUrl, scanResults);
+    const report = generateReport(normalizedTargetUrl, scanResults);
     return {
       ...report,
       metadata: scanResults.metadata,
@@ -91,10 +98,24 @@ export class Scanner {
 }
 
 export function createHttpClient() {
-  return axios.create({
+  const client = axios.create({
     timeout: DEFAULT_TIMEOUT_MS,
     validateStatus: (status) => status >= 200 && status < 400,
+    beforeRedirect: (options) => {
+      const protocol = options.protocol ?? 'https:';
+      const host = options.hostname ?? options.host;
+      assertAllowedTargetUrl(`${protocol}//${host}${options.path ?? '/'}`);
+    },
   });
+
+  client.interceptors.request.use((config) => {
+    const baseUrl = config.baseURL;
+    const requestUrl = new URL(config.url ?? '', baseUrl).toString();
+    assertAllowedTargetUrl(requestUrl);
+    return config;
+  });
+
+  return client;
 }
 
 export function createError(code, message, meta = {}) {
@@ -220,27 +241,27 @@ function normalizeErrors(errors, phaseName) {
   });
 }
 
-async function runUtilityAnalysis(targetUrl, phases, httpClient) {
+async function runUtilityAnalysis(targetUrl, phases, httpClient, requestPolicy) {
   const errors = [];
   const phaseData = Object.fromEntries(Object.entries(phases).filter(([, output]) => !output?.metadata?.skipped));
-  const endpoints = collectEndpoints(phaseData, targetUrl);
+  const endpoints = limitCorsEndpoints(collectEndpoints(phaseData, requestPolicy));
   const headers = await fetchTargetHeaders(targetUrl, httpClient, errors);
 
   return {
     jwtAnalysis: safelyRunSync('JWT analysis', errors, () => analyzeJWT(phaseData)),
-    corsResults: await safelyRunAsync('CORS check', errors, () => checkCORS(endpoints, httpClient)),
+    corsResults: await safelyRunAsync('CORS check', errors, () => checkCORS(endpoints, httpClient, { requestPolicy })),
     serverFingerprint: safelyRunSync('server fingerprint', errors, () => fingerprint(headers)),
     errors,
   };
 }
 
-function collectEndpoints(phases, targetUrl) {
+function collectEndpoints(phases, requestPolicy) {
   const endpoints = new Set();
 
   for (const phase of Object.values(phases)) {
     for (const api of phase.apis ?? []) {
       const value = api?.url ?? api?.endpoint ?? api?.path;
-      const endpoint = resolveEndpoint(value, targetUrl);
+      const endpoint = resolveEndpoint(value, requestPolicy);
 
       if (endpoint) {
         endpoints.add(endpoint);
@@ -256,13 +277,13 @@ function collectDiscoveredGraphQLPaths(phaseResults) {
   return Array.isArray(paths) ? paths : [];
 }
 
-function resolveEndpoint(value, targetUrl) {
+function resolveEndpoint(value, requestPolicy) {
   if (!value || typeof value !== 'string') {
     return null;
   }
 
   try {
-    return new URL(value, targetUrl).toString();
+    return requestPolicy.resolveSameOrigin(value);
   } catch {
     return null;
   }
@@ -283,7 +304,14 @@ async function fetchTargetHeaders(targetUrl, httpClient, errors) {
 
 function normalizeOptions(options) {
   const isQuick = options.quick === true;
+  const isActive = options.active === true;
   const skipPhases = new Set(normalizeSkipPhases(options.skipPhases ?? options.skip));
+
+  if (!isActive) {
+    for (const phaseName of ACTIVE_PHASES) {
+      skipPhases.add(phaseName);
+    }
+  }
 
   if (isQuick) {
     const quickPhases = ['sourcemap', 'window', 'metadata'];
@@ -298,6 +326,7 @@ function normalizeOptions(options) {
     skipPhases,
     concurrency: normalizeConcurrency(options.concurrency),
     quick: isQuick,
+    active: isActive,
   };
 }
 
@@ -309,12 +338,19 @@ function normalizeSkipPhases(skipPhases) {
   const values = Array.isArray(skipPhases) ? skipPhases : String(skipPhases).split(',');
   const knownPhases = new Set(PHASES.map((phase) => phase.name));
 
-  return values.map((phase) => String(phase).trim()).filter((phase) => knownPhases.has(phase));
+  const normalizedPhases = values.map((phase) => String(phase).trim()).filter(Boolean);
+  const unknownPhases = normalizedPhases.filter((phase) => !knownPhases.has(phase));
+
+  if (unknownPhases.length > 0) {
+    throw new Error(`Invalid skip phase: ${unknownPhases.join(', ')}`);
+  }
+
+  return normalizedPhases;
 }
 
 function normalizeConcurrency(concurrency) {
   const parsed = Number.parseInt(concurrency, 10);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_CONCURRENCY;
+  return Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, MAX_CONCURRENCY) : DEFAULT_CONCURRENCY;
 }
 
 function createSkippedPhaseResult(phaseName) {
@@ -329,12 +365,12 @@ function createSkippedPhaseResult(phaseName) {
   };
 }
 
-function validateTargetUrl(targetUrl) {
-  try {
-    new URL(targetUrl);
-  } catch {
-    throw new Error(`Invalid target URL: ${targetUrl}`);
-  }
+function collectPhaseErrors(phases) {
+  return Object.fromEntries(Object.entries(phases).map(([phaseName, result]) => [phaseName, result?.errors ?? []]));
+}
+
+function collectPhaseMetadata(phases) {
+  return Object.fromEntries(Object.entries(phases).map(([phaseName, result]) => [phaseName, result?.metadata ?? {}]));
 }
 
 function safelyRunSync(label, errors, action) {
