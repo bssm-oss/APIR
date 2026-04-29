@@ -131,7 +131,7 @@ export default function App() {
                   {new Date(report.scanTime).toLocaleString()} / {discoveredApis.length} endpoints / risk {Number(report.riskScore || 0)}/100
                 </p>
               </div>
-              <ExportButtons apis={report.buriedApis || []} surfaceApis={report.surfaceApis || []} target={report.target} />
+              <ExportButtons report={report} />
             </div>
             <ReportViewer report={report} />
           </section>
